@@ -18,3 +18,14 @@ ClickHouse. Сервис отчетов (`GET /reports`) читает готов
 
 **Только свой отчет.** Запрос идет через Auth BFF с access token. Сервис проверяет JWT и роль
 `prothetic_user` и берет логин из токена. Запросить чужой отчет нельзя.
+
+## Задача 2. Airflow DAG и витрина
+
+DAG `reports_mart` лежит в `airflow/dags/reports_mart_dag.py` и запускается каждый день в 02:00 UTC.
+Цепочка задач `get_period` → `extract_telemetry` и `extract_crm` → `transform` → `load` →
+`mark_loaded`. `get_period` берет дни от последнего загруженного до вчерашнего, поэтому пропущенные
+запуски догоняются сами. `load` перед вставкой удаляет период из витрины.
+
+Таблицы ClickHouse описаны в `clickhouse/init/01_reports.sql`. Тестовые источники лежат в `sources/`.
+
+Запуск `docker compose up -d --build`, Airflow на `http://localhost:8081` (admin / admin).

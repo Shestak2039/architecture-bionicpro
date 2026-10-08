@@ -1,5 +1,26 @@
 version: '3.8'
 
+x-airflow-common: &airflow-common
+  build:
+    context: ./airflow
+    dockerfile: Dockerfile
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_db/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__WEBSERVER__SECRET_KEY: 'bionicpro_airflow_secret'
+    AIRFLOW_CONN_TELEMETRY_DB: postgresql://telemetry_user:telemetry_password@telemetry_db:5432/telemetry
+    AIRFLOW_CONN_CRM_DB: postgresql://crm_user:crm_password@crm_db:5432/crm
+    AIRFLOW_CONN_CLICKHOUSE_REPORTS: http://reports_user:reports_password@clickhouse:8123/reports
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on: &airflow-common-depends-on
+    airflow_db:
+      condition: service_healthy
+
 services:
   keycloak_db:
     image: postgres:14
@@ -40,3 +61,76 @@ services:
       REACT_APP_KEYCLOAK_URL: http://localhost:8080
       REACT_APP_KEYCLOAK_REALM: reports-realm
       REACT_APP_KEYCLOAK_CLIENT_ID: reports-frontend
+
+  telemetry_db:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: telemetry
+      POSTGRES_USER: telemetry_user
+      POSTGRES_PASSWORD: telemetry_password
+    volumes:
+      - ./sources/telemetry_db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5434:5432"
+  crm_db:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: crm
+      POSTGRES_USER: crm_user
+      POSTGRES_PASSWORD: crm_password
+    volumes:
+      - ./sources/crm_db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5435:5432"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      CLICKHOUSE_DB: reports
+      CLICKHOUSE_USER: reports_user
+      CLICKHOUSE_PASSWORD: reports_password
+    volumes:
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
+    ports:
+      - "8123:8123"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  airflow_db:
+    image: postgres:16.0
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+  airflow-init:
+    <<: *airflow-common
+    command: bash -c "airflow db migrate && airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@example.com"
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8081:8080"
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+      telemetry_db:
+        condition: service_started
+      crm_db:
+        condition: service_started
+      clickhouse:
+        condition: service_started
