@@ -29,3 +29,14 @@ DAG `reports_mart` лежит в `airflow/dags/reports_mart_dag.py` и запу�
 Таблицы ClickHouse описаны в `clickhouse/init/01_reports.sql`. Тестовые источники лежат в `sources/`.
 
 Запуск `docker compose up -d --build`, Airflow на `http://localhost:8081` (admin / admin).
+
+## Задачи 3-5. API отчетов, ограничение доступа, кнопка в UI
+
+Сервис отчетов лежит в `reports_api/`, эндпоинт `GET /reports` на `http://localhost:8000`.
+Отчет берется из Clickhouse. Необязательные параметры `date_from` и `date_to` это период.
+
+Сервис проверяет подпись JWT по публичным ключам Keycloak и роль `prothetic_user`. Без токена ответ
+401, без роли 403.
+
+Для проверки можно войти на `http://localhost:3000` как `prothetic1` с `prothetic123` и нажать Download Report,
+в отчете будут два протеза пользователя. Пользователь `user1` с `password123` получит 403.

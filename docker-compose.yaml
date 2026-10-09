@@ -32,6 +32,10 @@ services:
       - ./postgres-keycloak-data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "keycloak_user", "-d", "keycloak_db"]
+      interval: 5s
+      retries: 10
   keycloak:
     image: quay.io/keycloak/keycloak:21.1
     environment:
@@ -49,7 +53,8 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - keycloak_db
+      keycloak_db:
+        condition: service_healthy
   frontend:
     build:
       context: ./frontend
@@ -134,3 +139,21 @@ services:
         condition: service_started
       clickhouse:
         condition: service_started
+
+  reports_api:
+    build:
+      context: ./reports_api
+      dockerfile: Dockerfile
+    environment:
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/reports-realm
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/reports-realm/protocol/openid-connect/certs
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_USER: reports_user
+      CLICKHOUSE_PASSWORD: reports_password
+      CLICKHOUSE_DB: reports
+      CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - clickhouse
+      - keycloak
